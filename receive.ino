@@ -1,5 +1,5 @@
 /*
- * Sends a C struct from ESP8266 to ESP8266 using ESP-NOW
+ * Receives a C struct from another ESP8266 using ESP-NOW
  * NOTE: Security is not set in this example
  * 
  * Frank Milburn, April 2018
@@ -14,59 +14,58 @@ extern "C" {
 #include <espnow.h>
 }
 
-// Insert the MAC Address of the receiver ESP(s) that will receive the messages
-uint8_t recMAC[] = {0x5E, 0xCF, 0x7F, 0xF8, 0x4D, 0x62};
-
-#define WIFI_CHANNEL 1                                                         // Set channel from 1 to 14                                                        
+String senderMAC;                                                              // sender's MAC
+#define WIFI_CHANNEL 1                                                         // Set channel from 1 to 14 (same as sender)                                                       
 
 // Set up a struct to store the text and numbers that will be sent - use packed for the smallest possible alignment for bytes
-// All receiving ESP(s) must also have this structure.
+// The sending ESP(s) must also have this structure.
 
-#define MSG_LEN 15
+#define MSG_LEN 40
 struct __attribute__((packed)) MSG {                                          
   char text[MSG_LEN];
   unsigned long number;
 } msg;
 int msgSize = sizeof(msg);                                                      // NOTE:  must be less than 250 bytes!
 
-void setup() {
-  Serial.begin(115200);
-  Serial.println("\nStarting ESP-NOW Sender");
-  
-  WiFi.mode(WIFI_STA);                                                          // Place in station mode for ESP-NOW sensor node
-  WiFi.disconnect();                                                            // Make sure disconnected from WiFi
+volatile boolean haveMsg = false;                                               // Volatile flag when new msg is received
 
-  Serial.print("Sender MAC:   ");                                               // Serial print sender MAC
-  Serial.println(WiFi.macAddress().c_str());
-  Serial.print("Receiver MAC: ");                                               // Serial print receiver MAC
-  for (int i = 0; i < 6; i++){
-    Serial.print(recMAC[i], HEX);
-    if (i < 5){
-      Serial.print(":");
-    }
-  }
-  Serial.print(", channel: ");                                                  // Serial print the channel
-  Serial.println(WIFI_CHANNEL);
+void setup() {
+  Serial.begin(115200); 
+  Serial.println("\nStarting ESP_Now Receiver");
+
+  WiFi.mode(WIFI_AP);                                                           // AP - cannot put radio to sleep
+  Serial.print("Receiver MAC: ");
+  Serial.println(WiFi.macAddress());
   Serial.println("");
 
   if (esp_now_init() != 0) {                                                    // Halt execution if init failed
     Serial.println("ESP-NOW init failed");
     while(1);
   }
-  esp_now_set_self_role(ESP_NOW_ROLE_CONTROLLER);                               // Sender is in controller role
-  esp_now_add_peer(recMAC, ESP_NOW_ROLE_SLAVE, WIFI_CHANNEL, NULL, 0);          // Sends to MAC of receiver in slave role
-                                                                                // Note that multiple peers can be added
-  strcpy(msg.text, "Hello World: ");                                            // Initialize the text message                                 
-  msg.number = 0;                                                               // and number to be sent
+  esp_now_set_self_role(ESP_NOW_ROLE_SLAVE);                                    // slave is receiver only
+  esp_now_register_recv_cb([](uint8_t *mac, uint8_t *data, uint8_t len) {       // call back (interrupt) when
+    senderMAC = "";                                                             // message is received stores
+    for (int i = 0; i < 6; i++){                                                // the sender's MAC
+      senderMAC += String(mac[i], HEX);
+      if (i < 5){
+        senderMAC += ":";
+      }
+    }
+    memcpy(&msg, data, sizeof(msg));                                            // call back also stores the msg
+    haveMsg = true;                                                             // flag that msg was received
+  });
 }
 
 void loop() {
-  Serial.print(msg.text);
-  Serial.println(msg.number);                                                                                                
-  unsigned char store[msgSize];                                                 // messages are stored as unsigned char
-  memcpy(&store, &msg, msgSize);                                                // for transmission (req'd by ESP-NOW)
-  esp_now_send(NULL, store, msgSize);                                           // NULL sends to all peers
-
-  delay(5000);
-  msg.number++;                                                                 // msg number is just a loop counter
+  if (haveMsg == true){                                                         // If a msg has been received
+    Serial.print("Device ");                                                    // print the MAC and the msg
+    Serial.print(senderMAC);
+    Serial.print(" reports \"");
+    Serial.print(msg.text);
+    Serial.print(msg.number);
+    Serial.println("\"");
+    
+    haveMsg = false;                                                            // and set the msg flag to false
+  }
 }
+
