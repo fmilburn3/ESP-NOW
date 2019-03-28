@@ -22,7 +22,7 @@ uint8_t recMAC[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 // Set up a struct to store the text and numbers that will be sent - use packed for the smallest possible alignment for bytes
 // All receiving ESP(s) must also have this structure.
 
-#define MSG_LEN 15
+#define MSG_LEN 40
 struct __attribute__((packed)) MSG {                                          
   char text[MSG_LEN];
   unsigned long number;
